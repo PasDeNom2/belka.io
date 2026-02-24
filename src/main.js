@@ -82,6 +82,7 @@ async function initPlayer(user) {
         x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
         y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
         size: INITIAL_MASS,
+        displaySize: INITIAL_MASS, // For fluid animation
         color: randomColor(),
         targetX: 0, targetY: 0,
         vx: 0, vy: 0 // Velocity for split/eject physics
@@ -145,6 +146,12 @@ function setupRealtime() {
             else if (eventType === 'DELETE') state.pixels.delete(oldRec.id);
         })
         .subscribe();
+
+    // Global garbage collector: automatically delete completely inactive ghost players from DB
+    setInterval(() => {
+        const staleTime = new Date(Date.now() - 15000).toISOString();
+        supabase.from('players').delete().lt('updated_at', staleTime).then();
+    }, 15000);
 }
 
 const syncInterval = 100;
@@ -182,8 +189,8 @@ function ejectMass() {
                 x: cell.x + Math.cos(angle) * getRadius(cell.size),
                 y: cell.y + Math.sin(angle) * getRadius(cell.size),
                 color: cell.color,
-                vx: Math.cos(angle) * 800, // Velocity for ejection
-                vy: Math.sin(angle) * 800,
+                vx: Math.cos(angle) * 1200, // Faster initial speed
+                vy: Math.sin(angle) * 1200,
                 isEjected: true, // custom local flag
                 owner_id: cell.owner_id // Note who ejected it to prevent immediate self-eating if needed
             };
@@ -224,10 +231,11 @@ function doPlayerSplit() {
                 name: cell.name,
                 color: cell.color,
                 size: halfMass,
+                displaySize: halfMass,
                 x: cell.x + Math.cos(angle) * getRadius(cell.size) * 0.5,
                 y: cell.y + Math.sin(angle) * getRadius(cell.size) * 0.5,
-                vx: Math.cos(angle) * 800, // shoot forward
-                vy: Math.sin(angle) * 800,
+                vx: Math.cos(angle) * 1400, // shoot forward faster
+                vy: Math.sin(angle) * 1400,
                 targetX: cell.x, targetY: cell.y,
                 createdAt: Date.now() // Track creation time for merging
             });
@@ -251,10 +259,11 @@ function splitCell(cell, maxSplits) {
             name: cell.name,
             color: cell.color,
             size: massPerCell,
+            displaySize: massPerCell,
             x: cell.x,
             y: cell.y,
-            vx: Math.cos(angle) * 600,
-            vy: Math.sin(angle) * 600,
+            vx: Math.cos(angle) * 1000,
+            vy: Math.sin(angle) * 1000,
             targetX: cell.x, targetY: cell.y,
             createdAt: Date.now()
         });
@@ -399,14 +408,15 @@ function gameLoop(timestamp) {
     const dt = (timestamp - lastTime) / 1000 || 0;
     lastTime = timestamp;
 
-    // Move ejected pixels
+    // Move ejected pixels smoothly with time-based friction
     for (const [id, pixel] of state.pixels.entries()) {
         if (pixel.vx !== undefined) {
             pixel.x += pixel.vx * dt;
             pixel.y += pixel.vy * dt;
-            pixel.vx *= 0.9; // friction
-            pixel.vy *= 0.9;
-            if (Math.abs(pixel.vx) < 10) delete pixel.vx;
+            const friction = Math.pow(0.005, dt); // Exp decay to 0.5% in 1 sec
+            pixel.vx *= friction;
+            pixel.vy *= friction;
+            if (Math.abs(pixel.vx) < 5 && Math.abs(pixel.vy) < 5) delete pixel.vx;
         }
     }
 
@@ -421,12 +431,17 @@ function gameLoop(timestamp) {
         const dist = Math.sqrt(targetDX * targetDX + targetDY * targetDY);
 
         state.myCells.forEach(myCell => {
-            // Apply Physics (ejection/split velocity)
-            if (myCell.vx !== undefined && (Math.abs(myCell.vx) > 10 || Math.abs(myCell.vy) > 10)) {
+            // Smooth size transitions (Fluid animation)
+            myCell.displaySize = myCell.displaySize || myCell.size;
+            myCell.displaySize += (myCell.size - myCell.displaySize) * 15 * dt;
+
+            // Apply Physics (ejection/split velocity) with exponential friction
+            if (myCell.vx !== undefined && (Math.abs(myCell.vx) > 5 || Math.abs(myCell.vy) > 5)) {
                 myCell.x += myCell.vx * dt;
                 myCell.y += myCell.vy * dt;
-                myCell.vx *= 0.85; // Heavy friction
-                myCell.vy *= 0.85;
+                const friction = Math.pow(0.01, dt); // Decay to 1% in 1 sec
+                myCell.vx *= friction;
+                myCell.vy *= friction;
             } else {
                 // Normal mouse movement
                 let dx = 0, dy = 0;
@@ -455,17 +470,15 @@ function gameLoop(timestamp) {
 
         const now = Date.now();
         for (const [id, player] of state.players.entries()) {
-            player.x += (player.targetX - player.x) * 0.2;
-            player.y += (player.targetY - player.y) * 0.2;
-            player.size += (player.targetSize - player.size) * 0.1;
+            player.x += (player.targetX - player.x) * 10 * dt;
+            player.y += (player.targetY - player.y) * 10 * dt;
+            player.size += (player.targetSize - player.size) * 10 * dt;
 
-            // Heartbeat cleanup: remove locally if haven't heard from them in 5 seconds
+            // Heartbeat cleanup locally
             if (player.lastUpdate && now - player.lastUpdate > 5000) {
                 state.players.delete(id);
-                // Help clean DB by voluntarily deleting stale records if we are the biggest player
-                if (state.myCells.length > 0 && Array.from(state.players.values()).every(p => p.size <= state.myCells[0].size)) {
-                    supabase.from('players').delete().eq('id', id).then();
-                }
+                // Automatic DB sweep for inactive players
+                supabase.from('players').delete().eq('id', id).then();
             }
         }
 
@@ -553,7 +566,8 @@ function drawVirus(v) {
 }
 
 function drawPlayer(player, isMe = false) {
-    const r = getRadius(player.size);
+    const renderSize = player.displaySize || player.size;
+    const r = getRadius(renderSize);
     ctx.beginPath();
     ctx.arc(player.x, player.y, r, 0, Math.PI * 2);
     ctx.fillStyle = player.color;
