@@ -142,7 +142,9 @@ function setupRealtime() {
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'pixels' }, payload => {
             const { eventType, new: newRec, old: oldRec } = payload;
-            if (eventType === 'INSERT') state.pixels.set(newRec.id, newRec);
+            if (eventType === 'INSERT') {
+                if (!state.pixels.has(newRec.id)) state.pixels.set(newRec.id, newRec);
+            }
             else if (eventType === 'DELETE') state.pixels.delete(oldRec.id);
         })
         .subscribe();
@@ -159,6 +161,7 @@ async function syncPlayer() {
     const now = Date.now();
     if (now - state.lastSync > syncInterval && state.myCells.length > 0) {
         state.lastSync = now;
+        updateLeaderboard(); // Update UI locally so giving food updates score immediately
 
         // Sync all my cells
         const updates = state.myCells.map(c => ({
@@ -180,7 +183,7 @@ function ejectMass() {
     // Eject from all cells > 20 mass (lowered for easier feeding)
     state.myCells.forEach(cell => {
         if (cell.size > 20) {
-            cell.size -= 10; // Lose 10 mass
+            cell.size -= 5; // Lose 5 mass
 
             const angle = getMouseAngle(cell);
             const id = generateUUID();
@@ -189,8 +192,8 @@ function ejectMass() {
                 x: cell.x + Math.cos(angle) * getRadius(cell.size),
                 y: cell.y + Math.sin(angle) * getRadius(cell.size),
                 color: cell.color,
-                vx: Math.cos(angle) * 1200, // Faster initial speed
-                vy: Math.sin(angle) * 1200,
+                vx: Math.cos(angle) * 800, // Smoother initial speed
+                vy: Math.sin(angle) * 800,
                 isEjected: true, // custom local flag
                 owner_id: cell.owner_id // Note who ejected it to prevent immediate self-eating if needed
             };
@@ -234,8 +237,8 @@ function doPlayerSplit() {
                 displaySize: halfMass,
                 x: cell.x + Math.cos(angle) * getRadius(cell.size) * 0.5,
                 y: cell.y + Math.sin(angle) * getRadius(cell.size) * 0.5,
-                vx: Math.cos(angle) * 1400, // shoot forward faster
-                vy: Math.sin(angle) * 1400,
+                vx: Math.cos(angle) * 800, // shoot forward smoothly
+                vy: Math.sin(angle) * 800,
                 targetX: cell.x, targetY: cell.y,
                 createdAt: Date.now() // Track creation time for merging
             });
@@ -245,11 +248,12 @@ function doPlayerSplit() {
 }
 
 function splitCell(cell, maxSplits) {
-    if (cell.size < 30 || state.myCells.length >= 16) return;
+    if (cell.size < 35 || state.myCells.length >= 16) return false;
 
     const numSplits = Math.min(maxSplits, 16 - state.myCells.length);
     const massPerCell = cell.size / numSplits;
     cell.size = massPerCell;
+    cell.createdAt = Date.now();
 
     for (let i = 1; i < numSplits; i++) {
         const angle = Math.random() * Math.PI * 2;
@@ -262,12 +266,13 @@ function splitCell(cell, maxSplits) {
             displaySize: massPerCell,
             x: cell.x,
             y: cell.y,
-            vx: Math.cos(angle) * 1000,
-            vy: Math.sin(angle) * 1000,
+            vx: Math.cos(angle) * 600,
+            vy: Math.sin(angle) * 600,
             targetX: cell.x, targetY: cell.y,
             createdAt: Date.now()
         });
     }
+    return true;
 }
 
 function updateScore() {
@@ -290,11 +295,12 @@ function checkCollisions() {
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (p.color === 'virus') {
-                if (dist < myRadius && myRadius > VIRUS_RADIUS * 1.1) {
+                if (dist < myRadius && myCell.size > 35) {
                     // Splitting!
-                    splitCell(myCell, 8); // explode into 8 parts
-                    state.pixels.delete(id);
-                    supabase.from('pixels').delete().eq('id', id).then();
+                    if (splitCell(myCell, 8)) {
+                        state.pixels.delete(id);
+                        supabase.from('pixels').delete().eq('id', id).then();
+                    }
                 }
             } else {
                 // Normal food or ejected mass
@@ -304,8 +310,8 @@ function checkCollisions() {
                         continue;
                     }
 
-                    // Ejected mass gives more score, normal pixel gives 1
-                    myCell.size += p.isEjected ? 10 : 1;
+                    // Ejected mass gives 5 mass, normal pixel gives 1
+                    myCell.size += p.isEjected ? 5 : 1;
                     state.pixels.delete(id);
                     supabase.from('pixels').delete().eq('id', id).then();
                 }
@@ -354,15 +360,15 @@ function checkCollisions() {
                 const canMerge = (Date.now() - (c1.createdAt || 0) > 10000) && (Date.now() - (c2.createdAt || 0) > 10000);
 
                 if (canMerge) {
-                    if (dist < Math.max(r1, r2)) {
+                    if (dist < Math.max(r1, r2) * 0.8) {
                         // Merge them (c1 absorbs c2)
                         c1.size += c2.size;
                         state.myCells.splice(j, 1);
                         j--; // adjust index after removal
                         continue;
                     } else {
-                        // Attractive force to pull them together
-                        const pull = 0.5;
+                        // Attractive force to pull them together strongly
+                        const pull = 2;
                         c1.x += (dx / dist) * pull;
                         c1.y += (dy / dist) * pull;
                         c2.x -= (dx / dist) * pull;
