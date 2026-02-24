@@ -143,7 +143,6 @@ async function initPlayer(user) {
     loginContainer.style.display = 'none';
     gameUi.style.display = 'block';
 
-    setupRealtime();
     requestAnimationFrame(gameLoop);
 }
 
@@ -577,6 +576,24 @@ function updateLeaderboard() {
     leaderboardList.innerHTML = all.slice(0, 10).map((p, i) =>
         `<li><span>${i + 1}. ${p.name === myName ? '<b>' + p.name + '</b>' : p.name}</span> <span>${Math.floor(p.size)}</span></li>`
     ).join('');
+
+    updateLobbyUI(allMap);
+}
+
+function updateLobbyUI(allMap) {
+    const lobbyList = document.getElementById('lobby-players-list');
+    const lobbyCount = document.getElementById('lobby-count');
+    if (!lobbyList || !lobbyCount) return;
+
+    lobbyCount.innerText = allMap.size;
+
+    if (allMap.size === 0) {
+        lobbyList.innerHTML = '<li>En attente de joueurs...</li>';
+    } else {
+        lobbyList.innerHTML = Array.from(allMap.keys()).map(name =>
+            `<li>${name}</li>`
+        ).join('');
+    }
 }
 
 let lastTime = 0;
@@ -877,3 +894,6 @@ async function spawnEntitiesLocally() {
         }
     }
 }
+
+// Start receiving data immediately for the Lobby
+setupRealtime();

@@ -179,6 +179,46 @@ html {
   font-weight: bold;
 }
 
+.lobby-panel {
+  margin-top: 25px;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: left;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.lobby-panel h3 {
+  font-size: 1rem;
+  color: #a0aabf;
+  margin: 0 0 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 5px;
+}
+
+#lobby-players-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #ddd;
+}
+
+#lobby-players-list li {
+  padding: 3px 0;
+  display: flex;
+  align-items: center;
+}
+
+#lobby-players-list li::before {
+  content: "•";
+  color: #20e3b2;
+  margin-right: 8px;
+  font-size: 1.2rem;
+}
+
 .skin-upload-group {
   display: flex;
   flex-direction: column;
