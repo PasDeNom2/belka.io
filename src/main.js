@@ -5,7 +5,7 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-const WORLD_SIZE = 4000;
+const WORLD_SIZE = 2000;
 const INITIAL_MASS = 10;
 const VIRUS_RADIUS = 35;
 const FOOD_RADIUS = 5;
@@ -384,9 +384,17 @@ function checkCollisions() {
         for (let j = i + 1; j < state.myCells.length; j++) {
             let c1 = state.myCells[i];
             let c2 = state.myCells[j];
-            const dx = c2.x - c1.x;
-            const dy = c2.y - c1.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
+            let dx = c2.x - c1.x;
+            let dy = c2.y - c1.y;
+            let dist = Math.sqrt(dx * dx + dy * dy);
+
+            // Prevent NaN explosions when exactly on top of each other
+            if (dist === 0) {
+                dx = (Math.random() - 0.5) * 0.1;
+                dy = (Math.random() - 0.5) * 0.1;
+                dist = Math.sqrt(dx * dx + dy * dy);
+            }
+
             const r1 = getRadius(c1.size);
             const r2 = getRadius(c2.size);
             const minDist = r1 + r2;
