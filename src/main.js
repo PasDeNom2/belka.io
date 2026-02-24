@@ -108,7 +108,15 @@ function isMyCell(id) {
 
 function setupRealtime() {
     supabase.from('pixels').select('*').then(({ data }) => {
-        if (data) data.forEach(p => state.pixels.set(p.id, p));
+        if (data) {
+            data.forEach(p => {
+                if (p.color && p.color.endsWith('|e')) {
+                    p.isEjected = true;
+                    p.color = p.color.slice(0, -2);
+                }
+                state.pixels.set(p.id, p);
+            });
+        }
     });
 
     supabase.from('players').select('*').then(({ data }) => {
@@ -143,6 +151,10 @@ function setupRealtime() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'pixels' }, payload => {
             const { eventType, new: newRec, old: oldRec } = payload;
             if (eventType === 'INSERT') {
+                if (newRec.color && newRec.color.endsWith('|e')) {
+                    newRec.isEjected = true;
+                    newRec.color = newRec.color.slice(0, -2);
+                }
                 if (!state.pixels.has(newRec.id)) state.pixels.set(newRec.id, newRec);
             }
             else if (eventType === 'DELETE') state.pixels.delete(oldRec.id);
@@ -187,6 +199,7 @@ function ejectMass() {
 
             const angle = getMouseAngle(cell);
             const id = generateUUID();
+            const dbColor = cell.color + '|e';
             const p = {
                 id,
                 x: cell.x + Math.cos(angle) * getRadius(cell.size),
@@ -199,7 +212,7 @@ function ejectMass() {
             };
 
             state.pixels.set(id, p);
-            supabase.from('pixels').insert({ id: p.id, x: p.x, y: p.y, color: p.color }).then();
+            supabase.from('pixels').insert({ id: p.id, x: p.x, y: p.y, color: dbColor }).then();
             updateScore();
         }
     });
@@ -237,8 +250,8 @@ function doPlayerSplit() {
                 displaySize: halfMass,
                 x: cell.x + Math.cos(angle) * getRadius(cell.size) * 0.5,
                 y: cell.y + Math.sin(angle) * getRadius(cell.size) * 0.5,
-                vx: Math.cos(angle) * 800, // shoot forward smoothly
-                vy: Math.sin(angle) * 800,
+                vx: Math.cos(angle) * 400, // closer shoot forward
+                vy: Math.sin(angle) * 400,
                 targetX: cell.x, targetY: cell.y,
                 createdAt: Date.now() // Track creation time for merging
             });
@@ -266,8 +279,8 @@ function splitCell(cell, maxSplits) {
             displaySize: massPerCell,
             x: cell.x,
             y: cell.y,
-            vx: Math.cos(angle) * 600,
-            vy: Math.sin(angle) * 600,
+            vx: Math.cos(angle) * 300,
+            vy: Math.sin(angle) * 300,
             targetX: cell.x, targetY: cell.y,
             createdAt: Date.now()
         });
@@ -356,8 +369,8 @@ function checkCollisions() {
             const minDist = r1 + r2;
 
             if (dist < minDist && dist > 0) {
-                // If both cells are older than 10 seconds, they merge
-                const canMerge = (Date.now() - (c1.createdAt || 0) > 10000) && (Date.now() - (c2.createdAt || 0) > 10000);
+                // If both cells are older than 20 seconds, they merge
+                const canMerge = (Date.now() - (c1.createdAt || 0) > 20000) && (Date.now() - (c2.createdAt || 0) > 20000);
 
                 if (canMerge) {
                     if (dist < Math.max(r1, r2) * 0.8) {
@@ -368,7 +381,7 @@ function checkCollisions() {
                         continue;
                     } else {
                         // Attractive force to pull them together strongly
-                        const pull = 2;
+                        const pull = 4;
                         c1.x += (dx / dist) * pull;
                         c1.y += (dy / dist) * pull;
                         c2.x -= (dx / dist) * pull;
@@ -532,7 +545,8 @@ function draw(cmX, cmY, totalMass) {
             drawVirus(pixel);
         } else {
             ctx.beginPath();
-            ctx.arc(pixel.x, pixel.y, FOOD_RADIUS, 0, Math.PI * 2);
+            const r = pixel.isEjected ? getRadius(5) : FOOD_RADIUS;
+            ctx.arc(pixel.x, pixel.y, r, 0, Math.PI * 2);
             ctx.fillStyle = pixel.color;
             ctx.fill();
             ctx.closePath();
