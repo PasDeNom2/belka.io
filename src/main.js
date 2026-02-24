@@ -297,51 +297,51 @@ function checkCollisions() {
                 }
             }
         }
-    }
 
-    // Enemy Collisions
-    for (const [id, player] of state.players.entries()) {
-        const dx = player.x - myCell.x;
-        const dy = player.y - myCell.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const theirRadius = getRadius(player.size);
+        // Enemy Collisions
+        for (const [id, player] of state.players.entries()) {
+            const dx = player.x - myCell.x;
+            const dy = player.y - myCell.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const theirRadius = getRadius(player.size);
 
-        if (dist < myRadius && myCell.size > player.size * 1.25) {
-            myCell.size += player.size * 0.5;
-            state.players.delete(id); // Optimistically remove
-        } else if (dist < theirRadius && player.size > myCell.size * 1.25) {
-            // I get eaten!
-            state.myCells.splice(i, 1);
-            supabase.from('players').delete().eq('id', myCell.id).then();
-            // If last cell eaten, respawn
-            if (state.myCells.length === 0) {
-                alert("You were eaten by " + player.name + "!");
-                initPlayer({ uid: generateUUID(), displayName: myCell.name }); // Re-init
-                return;
+            if (dist < myRadius && myCell.size > player.size * 1.25) {
+                myCell.size += player.size * 0.5;
+                state.players.delete(id); // Optimistically remove
+            } else if (dist < theirRadius && player.size > myCell.size * 1.25) {
+                // I get eaten!
+                state.myCells.splice(i, 1);
+                supabase.from('players').delete().eq('id', myCell.id).then();
+                // If last cell eaten, respawn
+                if (state.myCells.length === 0) {
+                    alert("You were eaten by " + player.name + "!");
+                    initPlayer({ uid: generateUUID(), displayName: myCell.name }); // Re-init
+                    return;
+                }
+                break; // cell is dead, break loop
             }
-            break; // cell is dead, break loop
         }
     }
-}
 
-// Cell merging (repel if same owner and recently split, otherwise merge)
-// For simplicity, just repel our own cells so they don't overlap totally
-for (let i = 0; i < state.myCells.length; i++) {
-    for (let j = i + 1; j < state.myCells.length; j++) {
-        let c1 = state.myCells[i];
-        let c2 = state.myCells[j];
-        const dx = c2.x - c1.x;
-        const dy = c2.y - c1.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const minDist = getRadius(c1.size) + getRadius(c2.size);
+    // Cell merging (repel if same owner and recently split, otherwise merge)
+    // For simplicity, just repel our own cells so they don't overlap totally
+    for (let i = 0; i < state.myCells.length; i++) {
+        for (let j = i + 1; j < state.myCells.length; j++) {
+            let c1 = state.myCells[i];
+            let c2 = state.myCells[j];
+            const dx = c2.x - c1.x;
+            const dy = c2.y - c1.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const minDist = getRadius(c1.size) + getRadius(c2.size);
 
-        if (dist < minDist && dist > 0) {
-            // Repel force
-            const overlap = minDist - dist;
-            const fx = (dx / dist) * overlap * 0.1;
-            const fy = (dy / dist) * overlap * 0.1;
-            c1.x -= fx; c1.y -= fy;
-            c2.x += fx; c2.y += fy;
+            if (dist < minDist && dist > 0) {
+                // Repel force
+                const overlap = minDist - dist;
+                const fx = (dx / dist) * overlap * 0.1;
+                const fy = (dy / dist) * overlap * 0.1;
+                c1.x -= fx; c1.y -= fy;
+                c2.x += fx; c2.y += fy;
+            }
         }
     }
 }
