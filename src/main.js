@@ -31,7 +31,7 @@ const gameUi = document.getElementById('game-ui');
 const scoreEl = document.getElementById('score');
 const leaderboardList = document.getElementById('leaderboard-list');
 
-const keys = { w: false };
+const keys = { w: false, space: false };
 const mouse = { x: width / 2, y: height / 2 };
 
 window.addEventListener('keydown', e => {
@@ -39,9 +39,24 @@ window.addEventListener('keydown', e => {
         if (!keys.w) ejectMass();
         keys.w = true;
     }
+    if (e.code === 'Space') {
+        if (!keys.space) doPlayerSplit();
+        keys.space = true;
+    }
 });
-window.addEventListener('keyup', e => { if (e.key === 'w' || e.key === 'W') keys.w = false; });
+window.addEventListener('keyup', e => {
+    if (e.key === 'w' || e.key === 'W') keys.w = false;
+    if (e.code === 'Space') keys.space = false;
+});
 canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
+
+window.addEventListener('beforeunload', () => {
+    if (state.myCells.length > 0) {
+        // Delete all my cells from DB on disconnect for dynamic leaderboard cleanup
+        const ids = state.myCells.map(c => c.id);
+        supabase.from('players').delete().in('id', ids).then();
+    }
+});
 
 const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 80%, 50%)`;
 
@@ -154,10 +169,10 @@ async function syncPlayer() {
 function ejectMass() {
     if (state.myCells.length === 0) return;
 
-    // Eject from all cells > 20 mass
+    // Eject from all cells > 35 mass
     state.myCells.forEach(cell => {
-        if (cell.size > 20) {
-            cell.size -= 5;
+        if (cell.size > 35) {
+            cell.size -= 15; // Lose 15 mass
 
             const angle = getMouseAngle(cell);
             const id = generateUUID();
@@ -168,7 +183,8 @@ function ejectMass() {
                 color: cell.color,
                 vx: Math.cos(angle) * 800, // Velocity for ejection
                 vy: Math.sin(angle) * 800,
-                isEjected: true // custom local flag
+                isEjected: true, // custom local flag
+                owner_id: cell.owner_id // Note who ejected it to prevent immediate self-eating if needed
             };
 
             state.pixels.set(id, p);
@@ -183,6 +199,37 @@ function getMouseAngle(cell) {
     const centerX = width / 2;
     const centerY = height / 2;
     return Math.atan2(mouse.y - centerY, mouse.x - centerX);
+}
+
+function doPlayerSplit() {
+    if (state.myCells.length === 0) return;
+
+    // Create a copy of the array so we don't mutate while iterating
+    const currentCells = [...state.myCells];
+
+    currentCells.forEach(cell => {
+        // Agar.io rules: must have > 35 mass to split into two
+        if (cell.size > 35 && state.myCells.length < 16) {
+            const halfMass = cell.size / 2;
+            cell.size = halfMass;
+
+            const angle = getMouseAngle(cell);
+
+            state.myCells.push({
+                id: generateUUID(),
+                owner_id: myOwnerId,
+                name: cell.name,
+                color: cell.color,
+                size: halfMass,
+                x: cell.x + Math.cos(angle) * getRadius(cell.size) * 0.5,
+                y: cell.y + Math.sin(angle) * getRadius(cell.size) * 0.5,
+                vx: Math.cos(angle) * 800, // shoot forward
+                vy: Math.sin(angle) * 800,
+                targetX: cell.x, targetY: cell.y
+            });
+        }
+    });
+    updateScore();
 }
 
 function splitCell(cell, maxSplits) {
@@ -236,60 +283,68 @@ function checkCollisions() {
                     supabase.from('pixels').delete().eq('id', id).then();
                 }
             } else {
+                // Normal food or ejected mass
                 if (dist < myRadius) {
-                    myCell.size += p.isEjected ? 5 : 1;
+                    // Prevent instantly re-eating your own just-ejected mass while it's moving fast
+                    if (p.isEjected && p.owner_id === myCell.owner_id && p.vx !== undefined && Math.abs(p.vx) > 50) {
+                        continue;
+                    }
+
+                    // Ejected mass gives more score, normal pixel gives 1
+                    myCell.size += p.isEjected ? 15 : 1;
                     state.pixels.delete(id);
                     supabase.from('pixels').delete().eq('id', id).then();
                 }
             }
         }
-
-        // Enemy Collisions
-        for (const [id, player] of state.players.entries()) {
-            const dx = player.x - myCell.x;
-            const dy = player.y - myCell.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const theirRadius = getRadius(player.size);
-
-            if (dist < myRadius && myCell.size > player.size * 1.25) {
-                myCell.size += player.size * 0.5;
-                state.players.delete(id); // Optimistically remove
-            } else if (dist < theirRadius && player.size > myCell.size * 1.25) {
-                // I get eaten!
-                state.myCells.splice(i, 1);
-                supabase.from('players').delete().eq('id', myCell.id).then();
-                // If last cell eaten, respawn
-                if (state.myCells.length === 0) {
-                    alert("You were eaten by " + player.name + "!");
-                    initPlayer({ uid: generateUUID(), displayName: myCell.name }); // Re-init
-                    return;
-                }
-                break; // cell is dead, break loop
-            }
-        }
     }
 
-    // Cell merging (repel if same owner and recently split, otherwise merge)
-    // For simplicity, just repel our own cells so they don't overlap totally
-    for (let i = 0; i < state.myCells.length; i++) {
-        for (let j = i + 1; j < state.myCells.length; j++) {
-            let c1 = state.myCells[i];
-            let c2 = state.myCells[j];
-            const dx = c2.x - c1.x;
-            const dy = c2.y - c1.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const minDist = getRadius(c1.size) + getRadius(c2.size);
+    // Enemy Collisions
+    for (const [id, player] of state.players.entries()) {
+        const dx = player.x - myCell.x;
+        const dy = player.y - myCell.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const theirRadius = getRadius(player.size);
 
-            if (dist < minDist && dist > 0) {
-                // Repel force
-                const overlap = minDist - dist;
-                const fx = (dx / dist) * overlap * 0.1;
-                const fy = (dy / dist) * overlap * 0.1;
-                c1.x -= fx; c1.y -= fy;
-                c2.x += fx; c2.y += fy;
+        if (dist < myRadius && myCell.size > player.size * 1.25) {
+            myCell.size += player.size * 0.5;
+            state.players.delete(id); // Optimistically remove
+        } else if (dist < theirRadius && player.size > myCell.size * 1.25) {
+            // I get eaten!
+            state.myCells.splice(i, 1);
+            supabase.from('players').delete().eq('id', myCell.id).then();
+            // If last cell eaten, respawn
+            if (state.myCells.length === 0) {
+                alert("You were eaten by " + player.name + "!");
+                initPlayer({ uid: generateUUID(), displayName: myCell.name }); // Re-init
+                return;
             }
+            break; // cell is dead, break loop
         }
     }
+}
+
+// Cell merging (repel if same owner and recently split, otherwise merge)
+// For simplicity, just repel our own cells so they don't overlap totally
+for (let i = 0; i < state.myCells.length; i++) {
+    for (let j = i + 1; j < state.myCells.length; j++) {
+        let c1 = state.myCells[i];
+        let c2 = state.myCells[j];
+        const dx = c2.x - c1.x;
+        const dy = c2.y - c1.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const minDist = getRadius(c1.size) + getRadius(c2.size);
+
+        if (dist < minDist && dist > 0) {
+            // Repel force
+            const overlap = minDist - dist;
+            const fx = (dx / dist) * overlap * 0.1;
+            const fy = (dy / dist) * overlap * 0.1;
+            c1.x -= fx; c1.y -= fy;
+            c2.x += fx; c2.y += fy;
+        }
+    }
+}
 }
 
 function updateLeaderboard() {
