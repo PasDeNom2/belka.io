@@ -119,7 +119,7 @@ async function initPlayer(user) {
     const skinData = skinUrlInput.value && skinUrlInput.value !== "Image Loaded File" ? skinUrlInput.value : loadedSkinData;
 
     const cell = {
-        id: user.uid, // Main cell uses UID
+        id: generateUUID(), // Unique ID per spawn so players using the same SSO account don't overwrite each other
         owner_id: myOwnerId,
         name: user.displayName || 'Player',
         x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
@@ -219,7 +219,6 @@ function setupRealtime() {
             } else if (eventType === 'DELETE') {
                 state.players.delete(oldRec.id);
             }
-            updateLeaderboard();
         })
         .on('postgres_changes', { event: '*', schema: 'public', table: 'pixels' }, payload => {
             const { eventType, new: newRec, old: oldRec } = payload;
@@ -244,9 +243,12 @@ function setupRealtime() {
 const syncInterval = 100;
 async function syncPlayer() {
     const now = Date.now();
+
+    // Regular UI updates
+    updateLeaderboard();
+
     if (now - state.lastSync > syncInterval && state.myCells.length > 0) {
         state.lastSync = now;
-        updateLeaderboard(); // Update UI locally so giving food updates score immediately
 
         // Sync all my cells
         const updates = state.myCells.map(c => ({
@@ -493,7 +495,13 @@ function checkCollisions() {
     }
 }
 
+let lastLeaderboardUpdate = 0;
+
 function updateLeaderboard() {
+    const now = Date.now();
+    if (now - lastLeaderboardUpdate < 500) return; // Throttle to 2 updates per second max
+    lastLeaderboardUpdate = now;
+
     const allMap = new Map();
     // Group players by name to sum sizes for split players
     state.players.forEach(p => {
