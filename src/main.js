@@ -539,9 +539,22 @@ function drawPlayer(player, isMe = false) {
     ctx.fillText(player.name, player.x, player.y);
 }
 
+const guestBtn = document.getElementById('guest-btn');
+const guestInput = document.getElementById('guest-name');
+
 loginBtn.addEventListener('click', () => {
     loginWithGoogle().then(user => initPlayer(user));
 });
+
+guestBtn.addEventListener('click', () => {
+    const name = guestInput.value.trim() || 'Guest' + Math.floor(Math.random() * 1000);
+    const mockUser = {
+        uid: generateUUID(),
+        displayName: name
+    };
+    initPlayer(mockUser);
+});
+
 setupAuthListener(user => {
     if (user && state.myCells.length === 0) initPlayer(user);
 });

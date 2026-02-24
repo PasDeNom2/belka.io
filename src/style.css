@@ -54,16 +54,59 @@ canvas {
   color: white;
   border: none;
   padding: 12px 24px;
-  font-size: 1.1rem;
-  border-radius: 6px;
+  font-size: 1.2rem;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.2s ease;
-  font-weight: bold;
+  transition: all 0.3s;
 }
 
 #login-btn:hover {
-  background-color: #2980b9;
-  transform: translateY(-2px);
+  background-color: #ff5c77;
+  transform: scale(1.05);
+}
+
+.separator {
+  margin: 15px 0;
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  position: relative;
+}
+
+#guest-name {
+  padding: 12px;
+  font-size: 1.1rem;
+  border-radius: 8px;
+  border: 1px solid #334;
+  background: rgba(0, 0, 0, 0.3);
+  color: white;
+  width: 100%;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+#guest-btn {
+  padding: 12px 24px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  font-size: 1.1rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s;
+  width: 100%;
+}
+
+#guest-btn:hover {
+  background-color: #45a049;
+  transform: scale(1.05);
+}
+
+#login-options {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 250px;
 }
 
 #game-ui {
