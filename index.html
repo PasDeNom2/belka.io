@@ -11,13 +11,37 @@
 </head>
 
 <body>
-  <div id="login-container">
-    <h1>belka.io 🍌</h1>
+  <div id="login-container" class="glass-panel">
+    <h1 class="glow-title">belka.io <span class="banana-spin">🍌</span></h1>
+    <p class="subtitle">Eat to grow. Split to conquer.</p>
+
     <div id="login-options">
-      <button id="login-btn">Login with Google</button>
-      <div class="separator">OR</div>
-      <input type="text" id="guest-name" placeholder="Enter Nickname" maxlength="15" />
-      <button id="guest-btn">Play as Guest</button>
+      <!-- Player Customization -->
+      <div class="customization-group">
+        <input type="text" id="guest-name" placeholder="Enter Nickname" maxlength="15" />
+
+        <div class="color-options">
+          <label class="rainbow-toggle">
+            <input type="checkbox" id="rainbow-text-checkbox" />
+            <span class="rainbow-slider">Rainbow Text 🌈</span>
+          </label>
+        </div>
+
+        <div class="skin-upload-group">
+          <input type="text" id="skin-url" placeholder="Skin Image URL (Optional)" />
+          <div class="or-divider"><span>OR</span></div>
+          <label class="file-upload-btn">
+            Upload Image
+            <input type="file" id="skin-file" accept="image/png, image/jpeg, image/gif" style="display: none;" />
+          </label>
+        </div>
+      </div>
+
+      <button id="guest-btn" class="primary-btn pulse-glow">Play as Guest</button>
+
+      <div class="separator"><span>OR</span></div>
+
+      <button id="login-btn" class="secondary-btn">Login & Save Score</button>
     </div>
   </div>
 

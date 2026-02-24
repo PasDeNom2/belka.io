@@ -11,18 +11,28 @@
   padding: 0;
 }
 
+/* --- UI Overhaul: Glassmorphism & Modern Aesthetics --- */
+
 body,
 html {
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  background-color: var(--bg-color);
+  font-family: 'Outfit', 'Segoe UI', Tahoma, Geneva, sans-serif;
+  /* Modern Font */
+  background: radial-gradient(circle at center, #2b3040 0%, #1a1c23 100%);
+  /* Darker, richer background */
   color: var(--text-color);
 }
 
-canvas {
-  display: block;
+.glass-panel {
+  background: rgba(20, 25, 35, 0.65);
+  backdrop-filter: blur(15px);
+  -webkit-backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  border-radius: 24px;
+  color: white;
 }
 
 #login-container {
@@ -30,83 +40,218 @@ canvas {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: var(--panel-bg);
   padding: 40px;
-  border-radius: 12px;
   text-align: center;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
   z-index: 100;
+  width: 90%;
+  max-width: 400px;
+  animation: floatIn 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
-#login-container h1 {
+@keyframes floatIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -45%) scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+.glow-title {
   font-size: 3rem;
-  margin-bottom: 10px;
-  color: var(--primary-color);
+  font-weight: 800;
+  background: linear-gradient(135deg, #0cebeb, #20e3b2, #29ffc6);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  margin-bottom: 5px;
+  filter: drop-shadow(0 0 10px rgba(32, 227, 178, 0.4));
 }
 
-#login-container p {
+.banana-spin {
+  display: inline-block;
+  animation: gentleBounce 2s infinite ease-in-out;
+}
+
+@keyframes gentleBounce {
+
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+
+  50% {
+    transform: translateY(-5px) rotate(10deg);
+  }
+}
+
+.subtitle {
+  color: #a0aabf;
+  margin-bottom: 30px;
+  font-size: 1rem;
+  letter-spacing: 0.5px;
+}
+
+.customization-group {
+  background: rgba(0, 0, 0, 0.2);
+  padding: 20px;
+  border-radius: 16px;
   margin-bottom: 25px;
-  color: #666;
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-#login-btn {
-  background-color: var(--primary-color);
+#login-options input[type="text"] {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 1.05rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
   color: white;
-  border: none;
-  padding: 12px 24px;
-  font-size: 1.2rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.3s;
+  margin-bottom: 15px;
+  transition: all 0.3s ease;
+  font-family: inherit;
 }
 
-#login-btn:hover {
-  background-color: #ff5c77;
-  transform: scale(1.05);
+#login-options input[type="text"]:focus {
+  outline: none;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--primary-color);
+  box-shadow: 0 0 15px rgba(52, 152, 219, 0.3);
+}
+
+.color-options {
+  margin-bottom: 15px;
+  text-align: left;
+}
+
+.rainbow-toggle {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: #ddd;
+  font-weight: 500;
+}
+
+.rainbow-toggle input {
+  margin-right: 8px;
+  accent-color: #ff00ff;
+  width: 16px;
+  height: 16px;
+}
+
+.rainbow-slider {
+  background: linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #4b0082, #9400d3);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  font-weight: bold;
+}
+
+.skin-upload-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#skin-url {
+  margin-bottom: 0 !important;
+}
+
+.or-divider {
+  display: flex;
+  align-items: center;
+  color: #666;
+  font-size: 0.8rem;
+  margin: 5px 0;
+}
+
+.or-divider::before,
+.or-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.or-divider span {
+  padding: 0 10px;
+}
+
+.file-upload-btn {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 12px;
+  border-radius: 10px;
+  color: #ccc;
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: 0.2s;
+  border: 1px dashed rgba(255, 255, 255, 0.3);
+}
+
+.file-upload-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+  border-color: white;
+}
+
+button {
+  width: 100%;
+  padding: 15px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.primary-btn {
+  background: linear-gradient(135deg, #11998e, #38ef7d);
+  color: #000;
+  box-shadow: 0 8px 15px rgba(56, 239, 125, 0.3);
+}
+
+.primary-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 20px rgba(56, 239, 125, 0.4);
+}
+
+.secondary-btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.secondary-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .separator {
-  margin: 15px 0;
-  color: #a0a0a0;
-  font-size: 0.9rem;
-  position: relative;
-}
-
-#guest-name {
-  padding: 12px;
-  font-size: 1.1rem;
-  border-radius: 8px;
-  border: 1px solid #334;
-  background: rgba(0, 0, 0, 0.3);
-  color: white;
-  width: 100%;
-  margin-bottom: 10px;
-  text-align: center;
-}
-
-#guest-btn {
-  padding: 12px 24px;
-  background-color: #4CAF50;
-  color: white;
-  border: none;
-  font-size: 1.1rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.3s;
-  width: 100%;
-}
-
-#guest-btn:hover {
-  background-color: #45a049;
-  transform: scale(1.05);
-}
-
-#login-options {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  width: 100%;
-  max-width: 250px;
+  color: #666;
+  font-size: 0.8rem;
+  margin: 20px 0;
+}
+
+.separator::before,
+.separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.separator span {
+  padding: 0 10px;
 }
 
 #game-ui {
@@ -166,41 +311,51 @@ canvas {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(0, 0, 0, 0.85);
-  padding: 40px;
-  border-radius: 12px;
+  padding: 50px 40px;
   text-align: center;
   color: white;
   pointer-events: auto;
-  /* Re-enable clicks inside death screen */
-  backdrop-filter: blur(5px);
-  min-width: 300px;
+  min-width: 380px;
+  animation: deathZoom 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes deathZoom {
+  0% {
+    transform: translate(-50%, -50%) scale(0.5);
+    opacity: 0;
+  }
+
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
 }
 
 #death-screen h2 {
-  font-size: 3rem;
-  color: #ff5c77;
-  margin-bottom: 10px;
+  font-size: 3.5rem;
+  color: #ff3366;
+  margin-bottom: 15px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  text-shadow: 0 0 20px rgba(255, 51, 102, 0.5);
 }
 
 #death-screen p {
-  font-size: 1.2rem;
-  margin-bottom: 25px;
-  color: #ccc;
+  font-size: 1.3rem;
+  margin-bottom: 35px;
+  color: #e0e5ff;
+  font-weight: 500;
 }
 
 #respawn-btn {
-  background-color: var(--primary-color);
+  background: linear-gradient(135deg, #ff3366, #ff7b00);
   color: white;
-  border: none;
-  padding: 12px 24px;
-  font-size: 1.2rem;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.3s;
+  box-shadow: 0 8px 15px rgba(255, 51, 102, 0.3);
+  margin-top: 10px;
 }
 
 #respawn-btn:hover {
-  background-color: #3498db;
-  transform: scale(1.05);
+  transform: translateY(-2px);
+  box-shadow: 0 12px 25px rgba(255, 51, 102, 0.5);
 }

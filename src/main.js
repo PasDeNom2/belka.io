@@ -31,6 +31,24 @@ const gameUi = document.getElementById('game-ui');
 const scoreEl = document.getElementById('score');
 const leaderboardList = document.getElementById('leaderboard-list');
 
+// New UI Elements
+const rainbowCheckbox = document.getElementById('rainbow-text-checkbox');
+const skinUrlInput = document.getElementById('skin-url');
+const skinFileInput = document.getElementById('skin-file');
+let loadedSkinData = null; // Holds base64 or URL
+
+skinFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            loadedSkinData = event.target.result;
+            skinUrlInput.value = "Image Loaded File";
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
 const keys = { w: false, space: false };
 const mouse = { x: width / 2, y: height / 2 };
 
@@ -75,6 +93,8 @@ function generateUUID() {
 const myOwnerId = generateUUID(); // Unique session ID to identify my pieces
 
 async function initPlayer(user) {
+    const skinData = skinUrlInput.value && skinUrlInput.value !== "Image Loaded File" ? skinUrlInput.value : loadedSkinData;
+
     const cell = {
         id: user.uid, // Main cell uses UID
         owner_id: myOwnerId,
@@ -84,6 +104,8 @@ async function initPlayer(user) {
         size: INITIAL_MASS,
         displaySize: INITIAL_MASS, // For fluid animation
         color: randomColor(),
+        skin: skinData || null, // Custom Image URL/Base64
+        rainbow: rainbowCheckbox.checked, // Rainbow Text Flag
         targetX: 0, targetY: 0,
         vx: 0, vy: 0 // Velocity for split/eject physics
     };
@@ -154,10 +176,21 @@ function setupRealtime() {
             if (eventType === 'INSERT' || eventType === 'UPDATE') {
                 let player = state.players.get(newRec.id);
                 if (!player) {
-                    player = { ...newRec, targetX: newRec.x, targetY: newRec.y, targetSize: newRec.size, x: newRec.x, y: newRec.y, size: newRec.size, lastUpdate: Date.now() };
+                    player = {
+                        ...newRec,
+                        targetX: newRec.x, targetY: newRec.y,
+                        targetSize: newRec.size,
+                        x: newRec.x, y: newRec.y,
+                        size: newRec.size,
+                        lastUpdate: Date.now(),
+                        skin: newRec.skin || null,
+                        rainbow: newRec.rainbow || false
+                    };
                     state.players.set(newRec.id, player);
                 } else {
                     player.targetX = newRec.x; player.targetY = newRec.y; player.targetSize = newRec.size;
+                    player.skin = newRec.skin || player.skin;
+                    player.rainbow = newRec.rainbow || player.rainbow;
                     player.lastUpdate = Date.now();
                 }
             } else if (eventType === 'DELETE') {
@@ -199,6 +232,8 @@ async function syncPlayer() {
             x: c.x, y: c.y,
             size: c.size,
             color: c.color,
+            skin: c.skin,
+            rainbow: c.rainbow,
             updated_at: new Date().toISOString()
         }));
 
@@ -293,6 +328,8 @@ function splitCell(cell, maxSplits) {
             owner_id: myOwnerId,
             name: cell.name,
             color: cell.color,
+            skin: cell.skin,
+            rainbow: cell.rainbow,
             size: massPerCell,
             displaySize: massPerCell,
             x: cell.x + Math.cos(angle) * r_offset,
@@ -622,28 +659,73 @@ function drawVirus(v) {
     ctx.stroke();
 }
 
+// Cache for loaded images
+const imageCache = new Map();
+
+function getOrCreateImage(src) {
+    if (imageCache.has(src)) return imageCache.get(src);
+    const img = new Image();
+    img.src = src;
+    imageCache.set(src, img);
+    return img;
+}
+
 function drawPlayer(player, isMe = false) {
     const renderSize = player.displaySize || player.size;
     const r = getRadius(renderSize);
+
     ctx.beginPath();
     ctx.arc(player.x, player.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = player.color;
-    ctx.fill();
+
+    if (player.skin) {
+        ctx.save();
+        ctx.clip(); // Clip to circle
+        const img = getOrCreateImage(player.skin);
+        if (img.complete && img.naturalHeight !== 0) {
+            ctx.drawImage(img, player.x - r, player.y - r, r * 2, r * 2);
+        } else {
+            ctx.fillStyle = player.color;
+            ctx.fill();
+        }
+        ctx.restore();
+    } else {
+        ctx.fillStyle = player.color;
+        ctx.fill();
+    }
 
     ctx.lineWidth = r * 0.05;
     ctx.strokeStyle = 'rgba(0,0,0,0.3)';
     ctx.stroke();
     ctx.closePath();
 
-    ctx.fillStyle = '#ffffff';
-    ctx.strokeStyle = '#000000';
     ctx.lineWidth = 3;
-    ctx.font = `bold ${Math.max(12, r * 0.4)}px 'Segoe UI'`;
+    ctx.font = `bold ${Math.max(12, r * 0.4)}px 'Outfit', 'Segoe UI'`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    ctx.strokeText(player.name, player.x, player.y);
-    ctx.fillText(player.name, player.x, player.y);
+    if (player.rainbow) {
+        // Create Rainbow Gradient for Name
+        const gradient = ctx.createLinearGradient(player.x - r, player.y, player.x + r, player.y);
+        const hue = (Date.now() / 10) % 360; // Animated shifting gradient
+        gradient.addColorStop(0, `hsl(${hue}, 100%, 60%)`);
+        gradient.addColorStop(0.5, `hsl(${(hue + 60) % 360}, 100%, 60%)`);
+        gradient.addColorStop(1, `hsl(${(hue + 120) % 360}, 100%, 60%)`);
+        ctx.fillStyle = gradient;
+        ctx.strokeStyle = '#ffffff'; // contrasting stroke
+        ctx.lineWidth = 4;
+        ctx.strokeText(player.name, player.x, player.y);
+        ctx.fillText(player.name, player.x, player.y);
+
+        ctx.strokeStyle = '#000000'; // outer stroke
+        ctx.lineWidth = 1;
+        ctx.strokeText(player.name, player.x, player.y);
+    } else {
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = '#000000';
+        ctx.lineWidth = 3;
+        ctx.strokeText(player.name, player.x, player.y);
+        ctx.fillText(player.name, player.x, player.y);
+    }
 }
 
 const guestBtn = document.getElementById('guest-btn');
