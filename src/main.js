@@ -386,6 +386,11 @@ function checkCollisions() {
         for (const [id, p] of state.pixels.entries()) {
             const dx = p.x - myCell.x;
             const dy = p.y - myCell.y;
+            const maxR = p.color === 'virus' ? VIRUS_RADIUS : (p.isEjected ? getRadius(5) : FOOD_RADIUS);
+
+            // Fast AABB check before expensive Math.sqrt
+            if (Math.abs(dx) > myRadius + maxR || Math.abs(dy) > myRadius + maxR) continue;
+
             const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (p.color === 'virus') {
@@ -416,8 +421,11 @@ function checkCollisions() {
         for (const [id, player] of state.players.entries()) {
             const dx = player.x - myCell.x;
             const dy = player.y - myCell.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
             const theirRadius = getRadius(player.size);
+
+            if (Math.abs(dx) > myRadius + theirRadius || Math.abs(dy) > myRadius + theirRadius) continue;
+
+            const dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist < myRadius && myCell.size > player.size * 1.25) {
                 myCell.size += player.size * 0.5;
@@ -641,18 +649,26 @@ function draw(cmX, cmY, totalMass) {
     ctx.stroke();
 
     // Map Borders
+    const minX = currX;
+    const maxX = currX + viewWidth;
+    const minY = currY;
+    const maxY = currY + viewHeight;
+
+    // Draw map outline
     ctx.lineWidth = 10;
     ctx.strokeStyle = '#ff5c77';
     ctx.strokeRect(-WORLD_SIZE, -WORLD_SIZE, WORLD_SIZE * 2, WORLD_SIZE * 2);
 
-    // Draw Pixels & Viruses
+    // Draw Pixels & Viruses (with viewport culling)
     for (const pixel of state.pixels.values()) {
+        const pR = pixel.color === 'virus' ? VIRUS_RADIUS : (pixel.isEjected ? getRadius(5) : FOOD_RADIUS);
+        if (pixel.x < minX - pR || pixel.x > maxX + pR || pixel.y < minY - pR || pixel.y > maxY + pR) continue;
+
         if (pixel.color === 'virus') {
             drawVirus(pixel);
         } else {
             ctx.beginPath();
-            const r = pixel.isEjected ? getRadius(5) : FOOD_RADIUS;
-            ctx.arc(pixel.x, pixel.y, r, 0, Math.PI * 2);
+            ctx.arc(pixel.x, pixel.y, pR, 0, Math.PI * 2);
             ctx.fillStyle = pixel.color;
             ctx.fill();
             ctx.closePath();
