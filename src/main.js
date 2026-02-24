@@ -168,6 +168,9 @@ function isMyCell(id) {
     return state.myCells.some(c => c.id === id);
 }
 
+let gameRoomChannel = null;
+let isRealtimeConnected = false;
+
 function setupRealtime() {
     supabase.from('pixels').select('*').then(({ data }) => {
         if (data) {
@@ -192,7 +195,13 @@ function setupRealtime() {
         }
     });
 
-    supabase.channel('game_room')
+    gameRoomChannel = supabase.channel('game_room', {
+        config: {
+            broadcast: { ack: false } // Essential to enable efficient client-to-client WebSockets without DB persistence
+        }
+    });
+
+    gameRoomChannel
         .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
             const { eventType, new: newRec, old: oldRec } = payload;
             if (newRec && isMyCell(newRec.id)) return;
@@ -248,7 +257,13 @@ function setupRealtime() {
                 }
             });
         })
-        .subscribe();
+        .subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+                isRealtimeConnected = true;
+            } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+                isRealtimeConnected = false;
+            }
+        });
 
     // Global garbage collector: automatically delete completely inactive ghost players from DB
     setInterval(() => {
@@ -279,11 +294,15 @@ async function syncPlayer() {
         }));
 
         // Send High-frequency Positional Update (Peer-to-Peer feeling via WebSocket)
-        supabase.channel('game_room').send({
-            type: 'broadcast',
-            event: 'pos',
-            payload: { updates }
-        });
+        if (gameRoomChannel && isRealtimeConnected) {
+            gameRoomChannel.send({
+                type: 'broadcast',
+                event: 'pos',
+                payload: { updates }
+            }).catch(err => {
+                // Ignore silent drops on ultra-fast UDP-like sends
+            });
+        }
 
         // Throttle Heavy Database Upserts (For Persistence & Late joiners) to once every 2 seconds
         if (now - lastDbUpsert > 2000) {
