@@ -196,7 +196,8 @@ function setupRealtime() {
         .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
             const { eventType, new: newRec, old: oldRec } = payload;
             if (newRec && isMyCell(newRec.id)) return;
-            if (eventType === 'INSERT' || eventType === 'UPDATE') {
+            // Only care about INSERT and DELETE from DB now (movements handled by broadcast)
+            if (eventType === 'INSERT') {
                 let player = state.players.get(newRec.id);
                 if (!player) {
                     player = {
@@ -210,11 +211,6 @@ function setupRealtime() {
                         rainbow: newRec.rainbow || false
                     };
                     state.players.set(newRec.id, player);
-                } else {
-                    player.targetX = newRec.x; player.targetY = newRec.y; player.targetSize = newRec.size;
-                    player.skin = newRec.skin || player.skin;
-                    player.rainbow = newRec.rainbow || player.rainbow;
-                    player.lastUpdate = Date.now();
                 }
             } else if (eventType === 'DELETE') {
                 state.players.delete(oldRec.id);
@@ -231,6 +227,27 @@ function setupRealtime() {
             }
             else if (eventType === 'DELETE') state.pixels.delete(oldRec.id);
         })
+        .on('broadcast', { event: 'pos' }, payload => {
+            // High-frequency low-latency positional updates (No DB touch)
+            const updates = payload.payload.updates;
+            if (!updates) return;
+            updates.forEach(u => {
+                if (isMyCell(u.id)) return;
+                let player = state.players.get(u.id);
+                if (!player) {
+                    player = { ...u, targetX: u.x, targetY: u.y, targetSize: u.size, lastUpdate: Date.now(), x: u.x, y: u.y };
+                    state.players.set(u.id, player);
+                } else {
+                    player.targetX = u.x; player.targetY = u.y; player.targetSize = u.size;
+                    // Update cosmetics if they changed recently
+                    if (u.name) player.name = u.name;
+                    if (u.color) player.color = u.color;
+                    player.skin = u.skin || player.skin;
+                    player.rainbow = u.rainbow !== undefined ? u.rainbow : player.rainbow;
+                    player.lastUpdate = Date.now();
+                }
+            });
+        })
         .subscribe();
 
     // Global garbage collector: automatically delete completely inactive ghost players from DB
@@ -240,17 +257,16 @@ function setupRealtime() {
     }, 15000);
 }
 
-const syncInterval = 100;
+const syncInterval = 50; // Super fast 20 FPS Broadcast Sync
+let lastDbUpsert = 0;
+
 async function syncPlayer() {
     const now = Date.now();
-
-    // Regular UI updates
     updateLeaderboard();
 
     if (now - state.lastSync > syncInterval && state.myCells.length > 0) {
         state.lastSync = now;
 
-        // Sync all my cells
         const updates = state.myCells.map(c => ({
             id: c.id,
             name: c.name,
@@ -262,7 +278,18 @@ async function syncPlayer() {
             updated_at: new Date().toISOString()
         }));
 
-        supabase.from('players').upsert(updates).then();
+        // Send High-frequency Positional Update (Peer-to-Peer feeling via WebSocket)
+        supabase.channel('game_room').send({
+            type: 'broadcast',
+            event: 'pos',
+            payload: { updates }
+        });
+
+        // Throttle Heavy Database Upserts (For Persistence & Late joiners) to once every 2 seconds
+        if (now - lastDbUpsert > 2000) {
+            lastDbUpsert = now;
+            supabase.from('players').upsert(updates).then();
+        }
     }
 }
 
@@ -375,6 +402,8 @@ function updateScore() {
     if (state.myCells.length === 0) scoreEl.innerText = INITIAL_MASS;
 }
 
+let pendingPixelDeletes = [];
+
 function checkCollisions() {
     if (state.myCells.length === 0) return;
 
@@ -398,7 +427,7 @@ function checkCollisions() {
                     // Splitting!
                     if (splitCell(myCell, 8)) {
                         state.pixels.delete(id);
-                        supabase.from('pixels').delete().eq('id', id).then();
+                        pendingPixelDeletes.push(id);
                     }
                 }
             } else {
@@ -412,7 +441,7 @@ function checkCollisions() {
                     // Ejected mass gives 5 mass, normal pixel gives 1
                     myCell.size += p.isEjected ? 5 : 1;
                     state.pixels.delete(id);
-                    supabase.from('pixels').delete().eq('id', id).then();
+                    pendingPixelDeletes.push(id);
                 }
             }
         }
@@ -611,6 +640,13 @@ function gameLoop(timestamp) {
         }
 
         draw(cmX, cmY, totalMass);
+
+        // Execute bulk UI deletions in a single POST request instead of 100 concurrent requests!
+        if (pendingPixelDeletes.length > 0) {
+            const batch = [...pendingPixelDeletes];
+            pendingPixelDeletes = [];
+            supabase.from('pixels').delete().in('id', batch).then();
+        }
     }
     requestAnimationFrame(gameLoop);
 }
