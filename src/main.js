@@ -345,7 +345,6 @@ for (let i = 0; i < state.myCells.length; i++) {
         }
     }
 }
-}
 
 function updateLeaderboard() {
     const allMap = new Map();
