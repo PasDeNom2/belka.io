@@ -126,15 +126,34 @@ async function syncPlayer() {
     }
 }
 
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
 async function spawnEntitiesLocally() {
     if (state.pixels.size < 200 && Math.random() < 0.1) {
-        const isVirus = Math.random() < 0.05; // 5% chance to spawn virus
+        const isVirus = Math.random() < 0.03; // 3% chance to spawn virus
+        const id = generateUUID();
+
         const p = {
+            id,
             x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
             y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
             color: isVirus ? 'virus' : randomColor()
         };
-        supabase.from('pixels').insert(p).then();
+
+        // Add instantly to local state for 0 lag experience
+        state.pixels.set(id, p);
+
+        // Dispatch to Supabase asynchronously
+        supabase.from('pixels').insert(p).then(({ error }) => {
+            if (error) {
+                console.error("Supabase insert error for pixel:", error);
+            }
+        });
     }
 }
 
