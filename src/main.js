@@ -10,7 +10,7 @@ const INITIAL_MASS = 10;
 const VIRUS_RADIUS = 35;
 const FOOD_RADIUS = 5;
 
-const state = { me: null, players: new Map(), pixels: new Map(), lastSync: 0 };
+const state = { myCells: [], players: new Map(), pixels: new Map(), lastSync: 0 };
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -31,11 +31,16 @@ const gameUi = document.getElementById('game-ui');
 const scoreEl = document.getElementById('score');
 const leaderboardList = document.getElementById('leaderboard-list');
 
-const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false };
+const keys = { w: false };
 const mouse = { x: width / 2, y: height / 2 };
 
-window.addEventListener('keydown', e => { if (keys.hasOwnProperty(e.key)) keys[e.key] = true; });
-window.addEventListener('keyup', e => { if (keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+window.addEventListener('keydown', e => {
+    if (e.key === 'w' || e.key === 'W') {
+        if (!keys.w) ejectMass();
+        keys.w = true;
+    }
+});
+window.addEventListener('keyup', e => { if (e.key === 'w' || e.key === 'W') keys.w = false; });
 canvas.addEventListener('mousemove', e => { mouse.x = e.clientX; mouse.y = e.clientY; });
 
 const randomColor = () => `hsl(${Math.floor(Math.random() * 360)}, 80%, 50%)`;
@@ -45,31 +50,44 @@ function getRadius(mass) {
     return Math.sqrt(mass) * 8;
 }
 
+function generateUUID() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+    });
+}
+
+const myOwnerId = generateUUID(); // Unique session ID to identify my pieces
+
 async function initPlayer(user) {
-    state.me = {
-        id: user.uid,
+    const cell = {
+        id: user.uid, // Main cell uses UID
+        owner_id: myOwnerId,
         name: user.displayName || 'Player',
         x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
         y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
-        size: INITIAL_MASS, // size means "mass"
+        size: INITIAL_MASS,
         color: randomColor(),
-        targetX: 0, targetY: 0
+        targetX: 0, targetY: 0,
+        vx: 0, vy: 0 // Velocity for split/eject physics
     };
-    state.me.targetX = state.me.x;
-    state.me.targetY = state.me.y;
+    cell.targetX = cell.x;
+    cell.targetY = cell.y;
 
-    await supabase.from('players').upsert({
-        id: state.me.id, name: state.me.name,
-        x: state.me.x, y: state.me.y,
-        size: state.me.size, color: state.me.color,
-        updated_at: new Date().toISOString()
-    });
+    state.myCells.push(cell);
+
+    // initial sync
+    await syncPlayer();
 
     loginContainer.style.display = 'none';
     gameUi.style.display = 'block';
 
     setupRealtime();
     requestAnimationFrame(gameLoop);
+}
+
+function isMyCell(id) {
+    return state.myCells.some(c => c.id === id);
 }
 
 function setupRealtime() {
@@ -80,7 +98,7 @@ function setupRealtime() {
     supabase.from('players').select('*').then(({ data }) => {
         if (data) {
             data.forEach(p => {
-                if (p.id !== state.me.id) {
+                if (!isMyCell(p.id)) {
                     p.targetX = p.x; p.targetY = p.y; p.targetSize = p.size;
                     state.players.set(p.id, p);
                 }
@@ -91,7 +109,7 @@ function setupRealtime() {
     supabase.channel('game_room')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, payload => {
             const { eventType, new: newRec, old: oldRec } = payload;
-            if (newRec && newRec.id === state.me.id) return;
+            if (newRec && isMyCell(newRec.id)) return;
             if (eventType === 'INSERT' || eventType === 'UPDATE') {
                 let player = state.players.get(newRec.id);
                 if (!player) {
@@ -116,99 +134,183 @@ function setupRealtime() {
 const syncInterval = 100;
 async function syncPlayer() {
     const now = Date.now();
-    if (now - state.lastSync > syncInterval && state.me) {
+    if (now - state.lastSync > syncInterval && state.myCells.length > 0) {
         state.lastSync = now;
-        supabase.from('players').upsert({
-            id: state.me.id, name: state.me.name,
-            x: state.me.x, y: state.me.y, size: state.me.size, color: state.me.color,
+
+        // Sync all my cells
+        const updates = state.myCells.map(c => ({
+            id: c.id,
+            name: c.name,
+            x: c.x, y: c.y,
+            size: c.size,
+            color: c.color,
             updated_at: new Date().toISOString()
-        }).then();
+        }));
+
+        supabase.from('players').upsert(updates).then();
     }
 }
 
-function generateUUID() {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
-        var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0x3 | 0x8);
-        return v.toString(16);
+function ejectMass() {
+    if (state.myCells.length === 0) return;
+
+    // Eject from all cells > 20 mass
+    state.myCells.forEach(cell => {
+        if (cell.size > 20) {
+            cell.size -= 5;
+
+            const angle = getMouseAngle(cell);
+            const id = generateUUID();
+            const p = {
+                id,
+                x: cell.x + Math.cos(angle) * getRadius(cell.size),
+                y: cell.y + Math.sin(angle) * getRadius(cell.size),
+                color: cell.color,
+                vx: Math.cos(angle) * 800, // Velocity for ejection
+                vy: Math.sin(angle) * 800,
+                isEjected: true // custom local flag
+            };
+
+            state.pixels.set(id, p);
+            supabase.from('pixels').insert({ id: p.id, x: p.x, y: p.y, color: p.color }).then();
+            updateScore();
+        }
     });
 }
 
-async function spawnEntitiesLocally() {
-    if (state.pixels.size < 200 && Math.random() < 0.1) {
-        const isVirus = Math.random() < 0.03; // 3% chance to spawn virus
-        const id = generateUUID();
+function getMouseAngle(cell) {
+    // get center of mass
+    const centerX = width / 2;
+    const centerY = height / 2;
+    return Math.atan2(mouse.y - centerY, mouse.x - centerX);
+}
 
-        const p = {
-            id,
-            x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
-            y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
-            color: isVirus ? 'virus' : randomColor()
-        };
+function splitCell(cell, maxSplits) {
+    if (cell.size < 30 || state.myCells.length >= 16) return;
 
-        // Add instantly to local state for 0 lag experience
-        state.pixels.set(id, p);
+    const numSplits = Math.min(maxSplits, 16 - state.myCells.length);
+    const massPerCell = cell.size / numSplits;
+    cell.size = massPerCell;
 
-        // Dispatch to Supabase asynchronously
-        supabase.from('pixels').insert(p).then(({ error }) => {
-            if (error) {
-                console.error("Supabase insert error for pixel:", error);
-            }
+    for (let i = 1; i < numSplits; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        state.myCells.push({
+            id: generateUUID(),
+            owner_id: myOwnerId,
+            name: cell.name,
+            color: cell.color,
+            size: massPerCell,
+            x: cell.x,
+            y: cell.y,
+            vx: Math.cos(angle) * 600,
+            vy: Math.sin(angle) * 600,
+            targetX: cell.x, targetY: cell.y
         });
     }
 }
 
+function updateScore() {
+    const totalMass = state.myCells.reduce((sum, c) => sum + c.size, 0);
+    scoreEl.innerText = Math.floor(totalMass);
+    if (state.myCells.length === 0) scoreEl.innerText = INITIAL_MASS;
+}
+
 function checkCollisions() {
-    const myRadius = getRadius(state.me.size);
+    if (state.myCells.length === 0) return;
 
-    for (const [id, p] of state.pixels.entries()) {
-        const dx = p.x - state.me.x;
-        const dy = p.y - state.me.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
+    for (let i = state.myCells.length - 1; i >= 0; i--) {
+        let myCell = state.myCells[i];
+        const myRadius = getRadius(myCell.size);
 
-        if (p.color === 'virus') {
-            if (dist < myRadius && myRadius > VIRUS_RADIUS * 1.1) {
-                // Explode on virus
-                state.me.size = Math.max(INITIAL_MASS, state.me.size / 2);
-                scoreEl.innerText = Math.floor(state.me.size);
-                state.pixels.delete(id);
-                supabase.from('pixels').delete().eq('id', id).then();
+        // Food/Virus collisions
+        for (const [id, p] of state.pixels.entries()) {
+            const dx = p.x - myCell.x;
+            const dy = p.y - myCell.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (p.color === 'virus') {
+                if (dist < myRadius && myRadius > VIRUS_RADIUS * 1.1) {
+                    // Splitting!
+                    splitCell(myCell, 8); // explode into 8 parts
+                    state.pixels.delete(id);
+                    supabase.from('pixels').delete().eq('id', id).then();
+                }
+            } else {
+                if (dist < myRadius) {
+                    myCell.size += p.isEjected ? 5 : 1;
+                    state.pixels.delete(id);
+                    supabase.from('pixels').delete().eq('id', id).then();
+                }
             }
-        } else {
-            if (dist < myRadius) {
-                state.me.size += 1;
-                scoreEl.innerText = Math.floor(state.me.size);
-                state.pixels.delete(id);
-                supabase.from('pixels').delete().eq('id', id).then();
+        }
+
+        // Enemy Collisions
+        for (const [id, player] of state.players.entries()) {
+            const dx = player.x - myCell.x;
+            const dy = player.y - myCell.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const theirRadius = getRadius(player.size);
+
+            if (dist < myRadius && myCell.size > player.size * 1.25) {
+                myCell.size += player.size * 0.5;
+                state.players.delete(id); // Optimistically remove
+            } else if (dist < theirRadius && player.size > myCell.size * 1.25) {
+                // I get eaten!
+                state.myCells.splice(i, 1);
+                supabase.from('players').delete().eq('id', myCell.id).then();
+                // If last cell eaten, respawn
+                if (state.myCells.length === 0) {
+                    alert("You were eaten by " + player.name + "!");
+                    initPlayer({ uid: generateUUID(), displayName: myCell.name }); // Re-init
+                    return;
+                }
+                break; // cell is dead, break loop
             }
         }
     }
 
-    for (const [id, player] of state.players.entries()) {
-        const dx = player.x - state.me.x;
-        const dy = player.y - state.me.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const theirRadius = getRadius(player.size);
+    // Cell merging (repel if same owner and recently split, otherwise merge)
+    // For simplicity, just repel our own cells so they don't overlap totally
+    for (let i = 0; i < state.myCells.length; i++) {
+        for (let j = i + 1; j < state.myCells.length; j++) {
+            let c1 = state.myCells[i];
+            let c2 = state.myCells[j];
+            const dx = c2.x - c1.x;
+            const dy = c2.y - c1.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const minDist = getRadius(c1.size) + getRadius(c2.size);
 
-        if (dist < myRadius && state.me.size > player.size * 1.25) {
-            state.me.size += player.size * 0.5;
-            scoreEl.innerText = Math.floor(state.me.size);
-        } else if (dist < theirRadius && player.size > state.me.size * 1.25) {
-            alert("You were eaten by " + player.name + "!");
-            state.me.size = INITIAL_MASS;
-            state.me.x = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            state.me.y = Math.random() * WORLD_SIZE - WORLD_SIZE / 2;
-            scoreEl.innerText = INITIAL_MASS;
+            if (dist < minDist && dist > 0) {
+                // Repel force
+                const overlap = minDist - dist;
+                const fx = (dx / dist) * overlap * 0.1;
+                const fy = (dy / dist) * overlap * 0.1;
+                c1.x -= fx; c1.y -= fy;
+                c2.x += fx; c2.y += fy;
+            }
         }
     }
 }
 
 function updateLeaderboard() {
-    const all = Array.from(state.players.values());
-    if (state.me) all.push(state.me);
+    const allMap = new Map();
+    // Group players by name to sum sizes for split players
+    state.players.forEach(p => {
+        allMap.set(p.name, (allMap.get(p.name) || 0) + p.size);
+    });
+
+    const myTotal = state.myCells.reduce((sum, c) => sum + c.size, 0);
+    if (state.myCells.length > 0 && state.myCells[0]) {
+        allMap.set(state.myCells[0].name, myTotal);
+    }
+
+    const all = Array.from(allMap.entries()).map(([name, size]) => ({ name, size }));
     all.sort((a, b) => b.size - a.size);
 
+    const myName = state.myCells.length > 0 ? state.myCells[0].name : null;
+
     leaderboardList.innerHTML = all.slice(0, 10).map((p, i) =>
-        `<li><span>${i + 1}. ${p.id === state.me?.id ? '<b>' + p.name + '</b>' : p.name}</span> <span>${Math.floor(p.size)}</span></li>`
+        `<li><span>${i + 1}. ${p.name === myName ? '<b>' + p.name + '</b>' : p.name}</span> <span>${Math.floor(p.size)}</span></li>`
     ).join('');
 }
 
@@ -217,37 +319,59 @@ function gameLoop(timestamp) {
     const dt = (timestamp - lastTime) / 1000 || 0;
     lastTime = timestamp;
 
-    if (state.me) {
-        let dx = 0, dy = 0;
-        if (keys.w || keys.ArrowUp) dy -= 1;
-        if (keys.s || keys.ArrowDown) dy += 1;
-        if (keys.a || keys.ArrowLeft) dx -= 1;
-        if (keys.d || keys.ArrowRight) dx += 1;
-
-        if (dx === 0 && dy === 0) {
-            const targetDX = mouse.x - width / 2;
-            const targetDY = mouse.y - height / 2;
-            const dist = Math.sqrt(targetDX * targetDX + targetDY * targetDY);
-            if (dist > 10) {
-                dx = targetDX / dist;
-                dy = targetDY / dist;
-            }
-        } else {
-            const len = Math.sqrt(dx * dx + dy * dy);
-            dx /= len; dy /= len;
+    // Move ejected pixels
+    for (const [id, pixel] of state.pixels.entries()) {
+        if (pixel.vx !== undefined) {
+            pixel.x += pixel.vx * dt;
+            pixel.y += pixel.vy * dt;
+            pixel.vx *= 0.9; // friction
+            pixel.vy *= 0.9;
+            if (Math.abs(pixel.vx) < 10) delete pixel.vx;
         }
+    }
 
-        const speed = 200 / Math.pow(state.me.size, 0.3); // Slower as you get bigger
-        state.me.x += dx * speed * dt;
-        state.me.y += dy * speed * dt;
+    if (state.myCells.length > 0) {
+        // Calculate center of mass
+        let cmX = 0, cmY = 0, totalMass = 0;
+        state.myCells.forEach(c => { cmX += c.x * c.size; cmY += c.y * c.size; totalMass += c.size; });
+        cmX /= totalMass; cmY /= totalMass;
 
-        // Bounds limit
-        state.me.x = Math.max(-WORLD_SIZE, Math.min(WORLD_SIZE, state.me.x));
-        state.me.y = Math.max(-WORLD_SIZE, Math.min(WORLD_SIZE, state.me.y));
+        const targetDX = mouse.x - width / 2;
+        const targetDY = mouse.y - height / 2;
+        const dist = Math.sqrt(targetDX * targetDX + targetDY * targetDY);
+
+        state.myCells.forEach(myCell => {
+            // Apply Physics (ejection/split velocity)
+            if (myCell.vx !== undefined && (Math.abs(myCell.vx) > 10 || Math.abs(myCell.vy) > 10)) {
+                myCell.x += myCell.vx * dt;
+                myCell.y += myCell.vy * dt;
+                myCell.vx *= 0.85; // Heavy friction
+                myCell.vy *= 0.85;
+            } else {
+                // Normal mouse movement
+                let dx = 0, dy = 0;
+                if (dist > 10) {
+                    dx = targetDX / dist;
+                    dy = targetDY / dist;
+                }
+
+                const speed = 200 / Math.pow(myCell.size, 0.3);
+                myCell.x += dx * speed * dt;
+                myCell.y += dy * speed * dt;
+            }
+
+            // Bounds limit
+            myCell.x = Math.max(-WORLD_SIZE, Math.min(WORLD_SIZE, myCell.x));
+            myCell.y = Math.max(-WORLD_SIZE, Math.min(WORLD_SIZE, myCell.y));
+        });
 
         checkCollisions();
+        updateScore();
         syncPlayer();
-        spawnEntitiesLocally();
+
+        // Serverless mode: only the biggest player spawns food to save requests? 
+        // Just throttle it heavily instead.
+        if (Math.random() < 0.05) spawnEntitiesLocally();
 
         for (const player of state.players.values()) {
             player.x += (player.targetX - player.x) * 0.2;
@@ -255,41 +379,41 @@ function gameLoop(timestamp) {
             player.size += (player.targetSize - player.size) * 0.1;
         }
 
-        draw();
+        draw(cmX, cmY, totalMass);
     }
     requestAnimationFrame(gameLoop);
 }
 
-function draw() {
+function draw(cmX, cmY, totalMass) {
     ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-color');
     ctx.fillRect(0, 0, width, height);
-    if (!state.me) return;
+    if (state.myCells.length === 0) return;
 
     ctx.save();
-    const myRadius = getRadius(state.me.size);
-    const zoom = Math.min(1.5, 40 / myRadius); // Zoom out as player grows
+    const maxRadius = getRadius(Math.max(...state.myCells.map(c => c.size)));
+    const zoom = Math.min(1.5, 40 / maxRadius);
 
     ctx.translate(width / 2, height / 2);
     ctx.scale(zoom, zoom);
-    ctx.translate(-state.me.x, -state.me.y);
+    ctx.translate(-cmX, -cmY); // Camera follows center of mass
 
     // Grid
     ctx.strokeStyle = '#d0d0d0';
     ctx.lineWidth = 1;
     const gridSize = 50;
-    const currX = state.me.x - (width / 2) / zoom;
-    const currY = state.me.y - (height / 2) / zoom;
+    const currX = cmX - (width / 2) / zoom;
+    const currY = cmY - (height / 2) / zoom;
     const viewWidth = width / zoom;
     const viewHeight = height / zoom;
     const startX = Math.floor(currX / gridSize) * gridSize;
     const startY = Math.floor(currY / gridSize) * gridSize;
 
     ctx.beginPath();
-    for (let x = startX; x < currX + viewWidth; x += gridSize) {
-        ctx.moveTo(x, currY); ctx.lineTo(x, currY + viewHeight);
+    for (let x = startX; x < currX + viewWidth + gridSize; x += gridSize) {
+        ctx.moveTo(x, currY); ctx.lineTo(x, currY + viewHeight + gridSize);
     }
-    for (let y = startY; y < currY + viewHeight; y += gridSize) {
-        ctx.moveTo(currX, y); ctx.lineTo(currX + viewWidth, y);
+    for (let y = startY; y < currY + viewHeight + gridSize; y += gridSize) {
+        ctx.moveTo(currX, y); ctx.lineTo(currX + viewWidth + gridSize, y);
     }
     ctx.stroke();
 
@@ -299,7 +423,6 @@ function draw() {
             drawVirus(pixel);
         } else {
             ctx.beginPath();
-            // Draw hexagon or circles for food; circle is fine
             ctx.arc(pixel.x, pixel.y, FOOD_RADIUS, 0, Math.PI * 2);
             ctx.fillStyle = pixel.color;
             ctx.fill();
@@ -307,10 +430,15 @@ function draw() {
         }
     }
 
+    // Draw other players
     for (const player of state.players.values()) {
         drawPlayer(player);
     }
-    drawPlayer(state.me, true);
+
+    // Draw my cells
+    for (const myCell of state.myCells) {
+        drawPlayer(myCell, true);
+    }
 
     ctx.restore();
 }
@@ -361,5 +489,29 @@ loginBtn.addEventListener('click', () => {
     loginWithGoogle().then(user => initPlayer(user));
 });
 setupAuthListener(user => {
-    if (user && !state.me) initPlayer(user);
+    if (user && state.myCells.length === 0) initPlayer(user);
 });
+
+async function spawnEntitiesLocally() {
+    if (state.pixels.size < 200 && Math.random() < 0.1) {
+        const isVirus = Math.random() < 0.03; // 3% chance to spawn virus
+        const id = generateUUID();
+
+        const p = {
+            id,
+            x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
+            y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
+            color: isVirus ? 'virus' : randomColor()
+        };
+
+        // Add instantly to local state for 0 lag experience
+        state.pixels.set(id, p);
+
+        // Dispatch to Supabase asynchronously
+        supabase.from('pixels').insert(p).then(({ error }) => {
+            if (error) {
+                console.error("Supabase insert error for pixel:", error);
+            }
+        });
+    }
+}

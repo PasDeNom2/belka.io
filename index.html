@@ -1,30 +1,33 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>belka.io</title>
-    <link rel="stylesheet" href="/src/style.css">
-  </head>
-  <body>
-    <div id="login-container">
-      <h1>Belka.io</h1>
-      <p>Eat pixels to grow, avoid bigger players!</p>
-      <button id="login-btn">Login with Google</button>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>belka.io</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+
+<body>
+  <div id="login-container">
+    <h1>Belka.io</h1>
+    <p>Eat pixels to grow, avoid bigger players!</p>
+    <button id="login-btn">Login with Google</button>
+  </div>
+
+  <div id="game-ui" style="display: none;">
+    <div id="score-board">
+      Score: <span id="score">0</span>
     </div>
-    
-    <div id="game-ui" style="display: none;">
-      <div id="score-board">
-        Score: <span id="score">0</span>
-      </div>
-      <div id="leaderboard">
-        <h3>Leaderboard</h3>
-        <ul id="leaderboard-list"></ul>
-      </div>
+    <div id="leaderboard">
+      <h3>Classement</h3>
+      <ul id="leaderboard-list"></ul>
     </div>
-    
-    <canvas id="gameCanvas"></canvas>
-    
-    <script type="module" src="/src/main.js"></script>
-  </body>
+  </div>
+
+  <canvas id="gameCanvas"></canvas>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+
 </html>
