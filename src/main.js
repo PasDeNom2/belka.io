@@ -128,10 +128,11 @@ function setupRealtime() {
             if (eventType === 'INSERT' || eventType === 'UPDATE') {
                 let player = state.players.get(newRec.id);
                 if (!player) {
-                    player = { ...newRec, targetX: newRec.x, targetY: newRec.y, targetSize: newRec.size, x: newRec.x, y: newRec.y, size: newRec.size };
+                    player = { ...newRec, targetX: newRec.x, targetY: newRec.y, targetSize: newRec.size, x: newRec.x, y: newRec.y, size: newRec.size, lastUpdate: Date.now() };
                     state.players.set(newRec.id, player);
                 } else {
                     player.targetX = newRec.x; player.targetY = newRec.y; player.targetSize = newRec.size;
+                    player.lastUpdate = Date.now();
                 }
             } else if (eventType === 'DELETE') {
                 state.players.delete(oldRec.id);
@@ -169,10 +170,10 @@ async function syncPlayer() {
 function ejectMass() {
     if (state.myCells.length === 0) return;
 
-    // Eject from all cells > 35 mass
+    // Eject from all cells > 20 mass (lowered for easier feeding)
     state.myCells.forEach(cell => {
-        if (cell.size > 35) {
-            cell.size -= 15; // Lose 15 mass
+        if (cell.size > 20) {
+            cell.size -= 10; // Lose 10 mass
 
             const angle = getMouseAngle(cell);
             const id = generateUUID();
@@ -208,10 +209,12 @@ function doPlayerSplit() {
     const currentCells = [...state.myCells];
 
     currentCells.forEach(cell => {
-        // Agar.io rules: must have > 35 mass to split into two
-        if (cell.size > 35 && state.myCells.length < 16) {
+        // Agar.io rules: lowered to 20 mass to split into two
+        if (cell.size > 20 && state.myCells.length < 16) {
             const halfMass = cell.size / 2;
             cell.size = halfMass;
+            // Reset merge timer for parent cell
+            cell.createdAt = Date.now();
 
             const angle = getMouseAngle(cell);
 
@@ -225,7 +228,8 @@ function doPlayerSplit() {
                 y: cell.y + Math.sin(angle) * getRadius(cell.size) * 0.5,
                 vx: Math.cos(angle) * 800, // shoot forward
                 vy: Math.sin(angle) * 800,
-                targetX: cell.x, targetY: cell.y
+                targetX: cell.x, targetY: cell.y,
+                createdAt: Date.now() // Track creation time for merging
             });
         }
     });
@@ -251,7 +255,8 @@ function splitCell(cell, maxSplits) {
             y: cell.y,
             vx: Math.cos(angle) * 600,
             vy: Math.sin(angle) * 600,
-            targetX: cell.x, targetY: cell.y
+            targetX: cell.x, targetY: cell.y,
+            createdAt: Date.now()
         });
     }
 }
@@ -291,7 +296,7 @@ function checkCollisions() {
                     }
 
                     // Ejected mass gives more score, normal pixel gives 1
-                    myCell.size += p.isEjected ? 15 : 1;
+                    myCell.size += p.isEjected ? 10 : 1;
                     state.pixels.delete(id);
                     supabase.from('pixels').delete().eq('id', id).then();
                 }
@@ -324,7 +329,6 @@ function checkCollisions() {
     }
 
     // Cell merging (repel if same owner and recently split, otherwise merge)
-    // For simplicity, just repel our own cells so they don't overlap totally
     for (let i = 0; i < state.myCells.length; i++) {
         for (let j = i + 1; j < state.myCells.length; j++) {
             let c1 = state.myCells[i];
@@ -332,15 +336,37 @@ function checkCollisions() {
             const dx = c2.x - c1.x;
             const dy = c2.y - c1.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const minDist = getRadius(c1.size) + getRadius(c2.size);
+            const r1 = getRadius(c1.size);
+            const r2 = getRadius(c2.size);
+            const minDist = r1 + r2;
 
             if (dist < minDist && dist > 0) {
-                // Repel force
-                const overlap = minDist - dist;
-                const fx = (dx / dist) * overlap * 0.1;
-                const fy = (dy / dist) * overlap * 0.1;
-                c1.x -= fx; c1.y -= fy;
-                c2.x += fx; c2.y += fy;
+                // If both cells are older than 10 seconds, they merge
+                const canMerge = (Date.now() - (c1.createdAt || 0) > 10000) && (Date.now() - (c2.createdAt || 0) > 10000);
+
+                if (canMerge) {
+                    if (dist < Math.max(r1, r2)) {
+                        // Merge them (c1 absorbs c2)
+                        c1.size += c2.size;
+                        state.myCells.splice(j, 1);
+                        j--; // adjust index after removal
+                        continue;
+                    } else {
+                        // Attractive force to pull them together
+                        const pull = 0.5;
+                        c1.x += (dx / dist) * pull;
+                        c1.y += (dy / dist) * pull;
+                        c2.x -= (dx / dist) * pull;
+                        c2.y -= (dy / dist) * pull;
+                    }
+                } else {
+                    // Repel force (can't merge yet)
+                    const overlap = minDist - dist;
+                    const fx = (dx / dist) * overlap * 0.1;
+                    const fy = (dy / dist) * overlap * 0.1;
+                    c1.x -= fx; c1.y -= fy;
+                    c2.x += fx; c2.y += fy;
+                }
             }
         }
     }
@@ -424,13 +450,23 @@ function gameLoop(timestamp) {
         syncPlayer();
 
         // Serverless mode: only the biggest player spawns food to save requests? 
-        // Just throttle it heavily instead.
-        if (Math.random() < 0.05) spawnEntitiesLocally();
+        // We will spawn more locally. Max 500 pixels.
+        if (Math.random() < 0.2) spawnEntitiesLocally();
 
-        for (const player of state.players.values()) {
+        const now = Date.now();
+        for (const [id, player] of state.players.entries()) {
             player.x += (player.targetX - player.x) * 0.2;
             player.y += (player.targetY - player.y) * 0.2;
             player.size += (player.targetSize - player.size) * 0.1;
+
+            // Heartbeat cleanup: remove locally if haven't heard from them in 5 seconds
+            if (player.lastUpdate && now - player.lastUpdate > 5000) {
+                state.players.delete(id);
+                // Help clean DB by voluntarily deleting stale records if we are the biggest player
+                if (state.myCells.length > 0 && Array.from(state.players.values()).every(p => p.size <= state.myCells[0].size)) {
+                    supabase.from('players').delete().eq('id', id).then();
+                }
+            }
         }
 
         draw(cmX, cmY, totalMass);
@@ -560,25 +596,28 @@ setupAuthListener(user => {
 });
 
 async function spawnEntitiesLocally() {
-    if (state.pixels.size < 200 && Math.random() < 0.1) {
-        const isVirus = Math.random() < 0.03; // 3% chance to spawn virus
-        const id = generateUUID();
+    if (state.pixels.size < 500) {
+        // Spawn 3 at a time for 20% frames to populate faster
+        for (let i = 0; i < 3; i++) {
+            const isVirus = Math.random() < 0.01; // 1% chance to spawn virus
+            const id = generateUUID();
 
-        const p = {
-            id,
-            x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
-            y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
-            color: isVirus ? 'virus' : randomColor()
-        };
+            const p = {
+                id,
+                x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
+                y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
+                color: isVirus ? 'virus' : randomColor()
+            };
 
-        // Add instantly to local state for 0 lag experience
-        state.pixels.set(id, p);
+            // Add instantly to local state for 0 lag experience
+            state.pixels.set(id, p);
 
-        // Dispatch to Supabase asynchronously
-        supabase.from('pixels').insert(p).then(({ error }) => {
-            if (error) {
-                console.error("Supabase insert error for pixel:", error);
-            }
-        });
+            // Dispatch to Supabase asynchronously
+            supabase.from('pixels').insert(p).then(({ error }) => {
+                if (error) {
+                    console.error("Supabase insert error for pixel:", error);
+                }
+            });
+        }
     }
 }
