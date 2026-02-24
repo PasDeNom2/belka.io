@@ -18,30 +18,32 @@
     <div id="login-options">
       <!-- Player Customization -->
       <div class="customization-group">
-        <input type="text" id="guest-name" placeholder="Enter Nickname" maxlength="15" />
+        <input type="text" id="guest-name" placeholder="Entrez un pseudo" maxlength="15" />
 
         <div class="color-options">
+          <div id="color-picker-container" class="color-picker"></div>
+
           <label class="rainbow-toggle">
             <input type="checkbox" id="rainbow-text-checkbox" />
-            <span class="rainbow-slider">Rainbow Text 🌈</span>
+            <span class="rainbow-slider">Texte Arc-en-ciel 🌈</span>
           </label>
         </div>
 
         <div class="skin-upload-group">
-          <input type="text" id="skin-url" placeholder="Skin Image URL (Optional)" />
-          <div class="or-divider"><span>OR</span></div>
+          <input type="text" id="skin-url" placeholder="Lien de Skin (Optionnel)" />
+          <div class="or-divider"><span>OU</span></div>
           <label class="file-upload-btn">
-            Upload Image
+            Charger une Image
             <input type="file" id="skin-file" accept="image/png, image/jpeg, image/gif" style="display: none;" />
           </label>
         </div>
       </div>
 
-      <button id="guest-btn" class="primary-btn pulse-glow">Play as Guest</button>
+      <button id="guest-btn" class="primary-btn pulse-glow">Jouer comme Invité</button>
 
-      <div class="separator"><span>OR</span></div>
+      <div class="separator"><span>OU</span></div>
 
-      <button id="login-btn" class="secondary-btn">Login & Save Score</button>
+      <button id="login-btn" class="secondary-btn">Se connecter pour Sauvegarder</button>
     </div>
   </div>
 
@@ -54,9 +56,9 @@
       <ul id="leaderboard-list"></ul>
     </div>
     <div id="death-screen" style="display: none;">
-      <h2>You Died!</h2>
+      <h2>Vous êtes mort !</h2>
       <p id="death-stats"></p>
-      <button id="respawn-btn">Back to Menu</button>
+      <button id="respawn-btn">Retour au Menu</button>
     </div>
   </div>
 

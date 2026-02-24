@@ -49,6 +49,29 @@ skinFileInput.addEventListener('change', (e) => {
     }
 });
 
+let selectedColor = null;
+const colorPickerContainer = document.getElementById('color-picker-container');
+const colors = ['#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50', '#8bc34a', '#cddc39', '#ffeb3b', '#ff9800', '#ff5722', '#795548'];
+
+colors.forEach(c => {
+    let div = document.createElement('div');
+    div.className = 'color-swatch';
+    div.style.backgroundColor = c;
+    div.onclick = () => {
+        document.querySelectorAll('.color-swatch').forEach(el => el.classList.remove('selected'));
+        div.classList.add('selected');
+        selectedColor = c;
+    };
+    colorPickerContainer.appendChild(div);
+});
+
+// Select random color by default on the UI
+const randomDefaultSwatches = document.querySelectorAll('.color-swatch');
+if (randomDefaultSwatches.length > 0) {
+    const randomPick = randomDefaultSwatches[Math.floor(Math.random() * randomDefaultSwatches.length)];
+    randomPick.click();
+}
+
 const keys = { w: false, space: false };
 const mouse = { x: width / 2, y: height / 2 };
 
@@ -103,7 +126,7 @@ async function initPlayer(user) {
         y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
         size: INITIAL_MASS,
         displaySize: INITIAL_MASS, // For fluid animation
-        color: randomColor(),
+        color: selectedColor || randomColor(),
         skin: skinData || null, // Custom Image URL/Base64
         rainbow: rainbowCheckbox.checked, // Rainbow Text Flag
         targetX: 0, targetY: 0,
@@ -292,6 +315,7 @@ function doPlayerSplit() {
             cell.createdAt = Date.now();
 
             const angle = getMouseAngle(cell);
+            const r_offset = getRadius(halfMass) * 0.5;
 
             state.myCells.push({
                 id: generateUUID(),
@@ -736,7 +760,7 @@ loginBtn.addEventListener('click', () => {
 });
 
 guestBtn.addEventListener('click', () => {
-    const name = guestInput.value.trim() || 'Guest' + Math.floor(Math.random() * 1000);
+    const name = guestInput.value.trim() || 'Invité' + Math.floor(Math.random() * 1000);
     const mockUser = {
         uid: generateUUID(),
         displayName: name
