@@ -102,6 +102,23 @@ async function initPlayer(user) {
     requestAnimationFrame(gameLoop);
 }
 
+// --- Additional UI Elements ---
+const deathScreen = document.getElementById('death-screen');
+const deathStats = document.getElementById('death-stats');
+const respawnBtn = document.getElementById('respawn-btn');
+
+function resetGameUI() {
+    deathScreen.style.display = 'none';
+    gameUi.style.display = 'none';
+    loginContainer.style.display = 'block';
+
+    // reset local player state cleanly
+    state.myCells = [];
+    scoreEl.innerText = '0';
+}
+
+respawnBtn.addEventListener('click', resetGameUI);
+
 function isMyCell(id) {
     return state.myCells.some(c => c.id === id);
 }
@@ -248,8 +265,8 @@ function doPlayerSplit() {
                 color: cell.color,
                 size: halfMass,
                 displaySize: halfMass,
-                x: cell.x + Math.cos(angle) * getRadius(cell.size) * 0.5,
-                y: cell.y + Math.sin(angle) * getRadius(cell.size) * 0.5,
+                x: cell.x + Math.cos(angle) * r_offset,
+                y: cell.y + Math.sin(angle) * r_offset,
                 vx: Math.cos(angle) * 400, // closer shoot forward
                 vy: Math.sin(angle) * 400,
                 targetX: cell.x, targetY: cell.y,
@@ -267,6 +284,7 @@ function splitCell(cell, maxSplits) {
     const massPerCell = cell.size / numSplits;
     cell.size = massPerCell;
     cell.createdAt = Date.now();
+    const r_offset = getRadius(cell.size) * 0.5;
 
     for (let i = 1; i < numSplits; i++) {
         const angle = Math.random() * Math.PI * 2;
@@ -277,8 +295,8 @@ function splitCell(cell, maxSplits) {
             color: cell.color,
             size: massPerCell,
             displaySize: massPerCell,
-            x: cell.x,
-            y: cell.y,
+            x: cell.x + Math.cos(angle) * r_offset,
+            y: cell.y + Math.sin(angle) * r_offset,
             vx: Math.cos(angle) * 300,
             vy: Math.sin(angle) * 300,
             targetX: cell.x, targetY: cell.y,
@@ -343,12 +361,17 @@ function checkCollisions() {
                 state.players.delete(id); // Optimistically remove
             } else if (dist < theirRadius && player.size > myCell.size * 1.25) {
                 // I get eaten!
+                const prevScore = scoreEl.innerText;
                 state.myCells.splice(i, 1);
                 supabase.from('players').delete().eq('id', myCell.id).then();
-                // If last cell eaten, respawn
+                // If last cell eaten, respawn UI
                 if (state.myCells.length === 0) {
-                    alert("You were eaten by " + player.name + "!");
-                    initPlayer({ uid: generateUUID(), displayName: myCell.name }); // Re-init
+                    deathStats.innerText = `Killed by ${player.name} \n Final Mass: ${prevScore}`;
+                    deathScreen.style.display = 'block';
+                    // Clean memory
+                    const ids = state.myCells.map(c => c.id);
+                    if (ids.length > 0) supabase.from('players').delete().in('id', ids).then();
+                    updateLeaderboard();
                     return;
                 }
                 break; // cell is dead, break loop
@@ -373,15 +396,16 @@ function checkCollisions() {
                 const canMerge = (Date.now() - (c1.createdAt || 0) > 20000) && (Date.now() - (c2.createdAt || 0) > 20000);
 
                 if (canMerge) {
-                    if (dist < Math.max(r1, r2) * 0.8) {
+                    if (dist < Math.max(r1, r2) * 1.0) {
                         // Merge them (c1 absorbs c2)
                         c1.size += c2.size;
+                        c1.displaySize += c2.displaySize; // Smooth merge visual
                         state.myCells.splice(j, 1);
                         j--; // adjust index after removal
                         continue;
                     } else {
                         // Attractive force to pull them together strongly
-                        const pull = 4;
+                        const pull = 6;
                         c1.x += (dx / dist) * pull;
                         c1.y += (dy / dist) * pull;
                         c2.x -= (dx / dist) * pull;
@@ -539,6 +563,11 @@ function draw(cmX, cmY, totalMass) {
     }
     ctx.stroke();
 
+    // Map Borders
+    ctx.lineWidth = 10;
+    ctx.strokeStyle = '#ff5c77';
+    ctx.strokeRect(-WORLD_SIZE, -WORLD_SIZE, WORLD_SIZE * 2, WORLD_SIZE * 2);
+
     // Draw Pixels & Viruses
     for (const pixel of state.pixels.values()) {
         if (pixel.color === 'virus') {
@@ -638,8 +667,8 @@ async function spawnEntitiesLocally() {
 
             const p = {
                 id,
-                x: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
-                y: Math.random() * WORLD_SIZE - WORLD_SIZE / 2,
+                x: Math.random() * (WORLD_SIZE * 2) - WORLD_SIZE,
+                y: Math.random() * (WORLD_SIZE * 2) - WORLD_SIZE,
                 color: isVirus ? 'virus' : randomColor()
             };
 
