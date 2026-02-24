@@ -756,7 +756,7 @@ const guestBtn = document.getElementById('guest-btn');
 const guestInput = document.getElementById('guest-name');
 
 loginBtn.addEventListener('click', () => {
-    loginWithGoogle().then(user => initPlayer(user));
+    loginWithGoogle().catch(err => console.error("SSO Login failed:", err));
 });
 
 guestBtn.addEventListener('click', () => {
